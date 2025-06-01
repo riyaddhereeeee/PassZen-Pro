@@ -1,219 +1,207 @@
-from telethon import TelegramClient
-from telethon.errors import SessionPasswordNeededError, FloodWaitError
-from telethon.tl import functions
-import time
-import os
-import asyncio
-import random
-import logging
-import sys
-import itertools
+import secrets
+import string
 import shutil
+import sys
+import time
+from colorama import Fore, Style, init
+import os
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+init(autoreset=True)
 
-api_id = 23877053
-api_hash = '989c360358b981dae46a910693ab2f4c'
+SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+SPINNER_COLOR = Fore.CYAN
 
-# ANSI color codes
-COLORS = {
-    'green': '\033[92m',
-    'red': '\033[91m',
-    'cyan': '\033[96m',
-    'yellow': '\033[93m',
-    'blue': '\033[94m',
-    'magenta': '\033[95m',
-    'white': '\033[97m',
-    'reset': '\033[0m'
-}
-
-def print_colored(text, color, end='\n'):
-    print(f"{COLORS[color]}{text}{COLORS['reset']}", end=end)
-
-def get_terminal_width():
-    """Get the current terminal width, defaulting to 80 if unavailable."""
-    try:
-        return shutil.get_terminal_size().columns
-    except:
-        return 80
-
-def print_box(text, style='double', color='cyan'):
-    """Prints a styled text box with dynamic width."""
-    width = min(get_terminal_width(), 80)  # Cap width at 80 or terminal size
-    if style == 'double':
-        top = f"╔{'═' * (width - 2)}╗"
-        bottom = f"╚{'═' * (width - 2)}╝"
-        side = '║'
-    elif style == 'single':
-        top = f"┌{'─' * (width - 2)}┐"
-        bottom = f"└{'─' * (width - 2)}┘"
-        side = '│'
-    else:
-        top = f"█{'█' * (width - 2)}█"
-        bottom = f"█{'█' * (width - 2)}█"
-        side = '█'
-    
-    print_colored(top, color)
-    lines = [text[i:i + width - 4] for i in range(0, len(text), width - 4)]
-    for line in lines:
-        print_colored(f"{side} {line:<{width - 4}} {side}", color)
-    print_colored(bottom, color)
-
-def print_section_header(title):
-    """Prints a section header with a horizontal rule."""
-    width = min(get_terminal_width(), 80)
-    print_colored(f"{'═' * width}", 'magenta')
-    print_colored(f"{title:^{width}}", 'white')
-    print_colored(f"{'═' * width}", 'magenta')
-
-def print_banner():
-    """Prints a futuristic, multi-layered banner."""
-    os.system('cls' if os.name == 'nt' else 'clear')
-    banner = r"""
-       
-            ████████╗ ██████╗     ███████╗                           
-           ╚══██╔══╝██╔════╝     ██╔════╝                           
-              ██║   ██║  ███╗    ███████╗                           
-              ██║   ██║   ██║    ╚════██║                           
-              ██║   ╚██████╔╝    ███████║                           
-                                           
-        
-    """
-    colors = ['cyan', 'blue', 'magenta', 'cyan', 'blue', 'magenta', 'cyan']
-    for i, line in enumerate(banner.split('\n')):
-        print_colored(line, colors[i % len(colors)])
-    print_box(" TELEGRAM SCRAPER ", style='double', color='white')
-    print_colored("          Developed by Muhammad Riyad ", 'green')
-    print()
-
-def loading_animation(message, duration=2, style='pulse'):
-    """Displays a sophisticated loading animation."""
-    width = 30
-    if style == 'pulse':
-        frames = ['.', '..', '...', '....']
-        start_time = time.time()
-        print_colored(f"{message} ", 'yellow', end='')
-        while time.time() - start_time < duration:
-            for frame in frames:
-                print_colored(f"\r{message} {frame}", 'yellow', end='')
-                sys.stdout.flush()
-                time.sleep(0.2)
-        print()
-    elif style == 'segment':
-        print_colored(f"{message}", 'yellow')
-        for i in range(width + 1):
-            percent = (i / width) * 100
-            bar = '█' * (i // 2) + ' ' * ((width - i) // 2)
-            print_colored(f"\r[{bar}] {percent:3.0f}%", 'blue', end='')
-            sys.stdout.flush()
-            time.sleep(duration / width)
-        print()
-
-client = TelegramClient('session_name', api_id, api_hash)
-
-async def resolve_group(group_input):
-    loading_animation("Resolving group", duration=1, style='pulse')
-    if group_input.startswith('https://t.me/'):
-        try:
-            invite = await client(functions.messages.CheckChatInviteRequest(hash=group_input.split('/')[-1]))
-            return invite.chat
-        except Exception as e:
-            print_colored(f"Error resolving invite link: {e}", 'red')
-            raise
-    return await client.get_entity(group_input)
-
-async def main():
-    print_banner()
-    
-    print_section_header("Group Or Chennel Configuration")
-    group_to_scrape = input(f"{COLORS['blue']}Source group (without @ or invite link): {COLORS['reset']}").strip()
-    group_to_add = input(f"{COLORS['blue']}Target group (without @ or invite link): {COLORS['reset']}").strip()
-    try:
-        max_members = int(input(f"{COLORS['blue']}Number of members to add (default 10): {COLORS['reset']}") or 10)
-    except ValueError:
-        max_members = 10
-        print_colored("Invalid input, defaulting to 10 members", 'yellow')
-
-    if not await client.is_user_authorized():
-        print_section_header("Authentication")
-        phone_number = input(f"{COLORS['blue']}Phone number: {COLORS['reset']}")
-        loading_animation("Requesting OTP", duration=2, style='segment')
-        await client.send_code_request(phone_number)
-        otp = input(f"{COLORS['blue']}Enter OTP: {COLORS['reset']}")
-        try:
-            await client.sign_in(phone_number, otp)
-        except SessionPasswordNeededError:
-            password = input(f"{COLORS['blue']}Enter 2FA password: {COLORS['reset']}")
-            await client.sign_in(password=password)
-        print_box("Authentication successful", style='single', color='green')
-    else:
-        print_box("Session active", style='single', color='green')
-
-    try:
-        group_to_scrape = await resolve_group(group_to_scrape)
-        group_to_add = await resolve_group(group_to_add)
-    except Exception as e:
-        print_colored(f"Failed to fetch group: {e}", 'red')
-        return
-
-    print_section_header("Analyzing Target Group")
-    loading_animation("Fetching existing members", duration=2, style='segment')
-    existing_members = await client.get_participants(group_to_add)
-    existing_ids = {member.id for member in existing_members}
-    print_box(f"Found {len(existing_ids)} existing members", style='single', color='cyan')
-
-    print_section_header("Scraping Source Group")
-    members = []
-    async for member in client.iter_participants(group_to_scrape):
-        members.append(member)
-        print_colored(f"\rScraped {len(members)} members...", 'blue', end='')
+def animate_loading(duration=1.5):
+    start_time = time.time()
+    i = 0
+    while time.time() - start_time < duration:
+        sys.stdout.write(f'\r{SPINNER_COLOR}{SPINNER[i % len(SPINNER)]} Generating...')
         sys.stdout.flush()
-    print()
-    print_box(f"Total members scraped: {len(members)}", style='single', color='cyan')
+        time.sleep(0.1)
+        i += 1
+    sys.stdout.write('\r' + ' ' * 30 + '\r')
 
-    print_section_header("Adding Members")
-    added_count = 0
-    for i, member in enumerate(members):
-        if added_count >= max_members:
-            print_box(f"Reached limit of {max_members} members", style='double', color='white')
-            break
+def generate_advanced_password(length, upper=True, lower=True, digits=True, symbols=True, custom="", avoid_ambiguous=True):
+    base_chars = ""
+    if lower:
+        base_chars += string.ascii_lowercase
+    if upper:
+        base_chars += string.ascii_uppercase
+    if digits:
+        base_chars += string.digits
+    if symbols:
+        base_chars += "!@#$%^&*()-_=+[]{}<>?/|"
+    base_chars += custom
 
-        if member.bot or member.username is None:
-            print_colored(f"Skipping user {member.id}: Bot or no username", 'red')
-            continue
-        if member.id in existing_ids:
-            print_colored(f"Skipping {member.username}: Already in group", 'cyan')
-            continue
+    if avoid_ambiguous:
+        base_chars = base_chars.translate(str.maketrans('', '', 'Il1O0'))
 
-        for attempt in range(3):
-            try:
-                loading_animation(f"Adding {member.username}", duration=1, style='pulse')
-                await client(functions.channels.InviteToChannelRequest(group_to_add, [member]))
-                added_count += 1
-                print_box(f"Added {member.username} ({added_count}/{max_members})", style='single', color='green')
-                await asyncio.sleep(15)
-                break
-            except FloodWaitError as e:
-                wait_time = e.seconds + random.uniform(5, 15)
-                print_colored(f"Flood wait: Pausing for {wait_time:.1f}s (Attempt {attempt + 1}/3)", 'red')
-                await asyncio.sleep(wait_time)
-                if attempt == 2:
-                    print_colored(f"Max retries for {member.username}, skipping", 'red')
-            except Exception as e:
-                print_colored(f"Failed to add {member.username}: {e}", 'red')
-                await asyncio.sleep(3)
-                break
+    if not base_chars:
+        return None
 
-        # Progress bar
-        progress = (added_count / max_members) * 100
-        bar_width = 30
-        filled = int(bar_width * added_count // max_members)
-        bar = '█' * filled + '-' * (bar_width - filled)
-        print_colored(f"\rProgress: [{bar}] {progress:3.0f}%", 'green')
+    password = []
 
-    print_section_header("Operation Complete")
-    print_box(f"Added {added_count} members to {group_to_add.title}", style='double', color='white')
+    if upper: password.append(secrets.choice(string.ascii_uppercase))
+    if lower: password.append(secrets.choice(string.ascii_lowercase))
+    if digits: password.append(secrets.choice(string.digits))
+    if symbols: password.append(secrets.choice("!@#$%^&*()-_=+[]{}<>?/|"))
+    if custom: password.append(secrets.choice(custom))
+
+    while len(password) < length:
+        password.append(secrets.choice(base_chars))
+
+    secrets.SystemRandom().shuffle(password)
+    return ''.join(password)
+
+def banner():
+    term_width = shutil.get_terminal_size().columns
+    title = "Pass Zen Pro"
+    version = "v1.0.0"
+    developer = "Developed by @ Riyad"
+    benefits = "Secure | Fast | Customizable"
+    min_width = 20
+    max_width = 60
+    
+    banner_width = min(max(term_width - 2, min_width), max_width)
+    
+    title_padding = (banner_width - len(title)) // 2
+    version_padding = (banner_width - len(version)) // 2
+    developer_padding = (banner_width - len(developer)) // 2
+    benefits_padding = (banner_width - len(benefits)) // 2
+    
+    border_char = "-"
+    border = border_char * banner_width
+    top_border = f"{Fore.CYAN}{Style.BRIGHT}{border}"
+    bottom_border = f"{Fore.CYAN}{Style.BRIGHT}{border}"
+    
+    title_line = f"{Fore.CYAN}{Style.BRIGHT}|{' ' * title_padding}{title}{' ' * (banner_width - len(title) - title_padding)}|"
+    version_line = f"{Fore.CYAN}{Style.BRIGHT}|{' ' * version_padding}{version}{' ' * (banner_width - len(version) - version_padding)}|"
+    developer_line = f"{Fore.CYAN}{Style.BRIGHT}|{' ' * developer_padding}{developer}{' ' * (banner_width - len(developer) - developer_padding)}|"
+    benefits_line = f"{Fore.CYAN}{Style.BRIGHT}|{' ' * benefits_padding}{benefits}{' ' * (banner_width - len(benefits) - benefits_padding)}|"
+    
+    print("\n")
+    print(top_border)
+    print(title_line)
+    print(version_line)
+    print(developer_line)
+    print(benefits_line)
+    print(bottom_border)
+    print("\n")
+
+def clear_screen():
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+def main():
+    banner()
+    
+    # Language selection with gaps between question and options, and between "2 English" and "Enter 1 or 2:"
+    print(Fore.MAGENTA + "Which language would you like to use?")
+    print("\n" * 2)  # Adds two blank lines for spacing
+    print(Fore.MAGENTA + "1 Bangla")
+    print(Fore.MAGENTA + "2 English")  # No gap between "1 Bangla" and "2 English"
+    print("\n" * 2)  # Adds two blank lines for spacing
+    print(Fore.MAGENTA + "Enter 1 or 2: ")
+    language = input().strip()
+    if language not in ['1', '2']:
+        print(Fore.RED + "Invalid choice. Defaulting to English.")
+        language = '2'
+    
+    # Clear screen after language selection
+    clear_screen()
+    banner()
+
+    try:
+        if language == '1':
+            # Bangla prompts
+            length_prompt = "পাসওয়ার্ডের দৈর্ঘ্য কত হবে (৮-৫০)? [১২]: "
+            count_prompt = "কয়টি পাসওয়ার্ড তৈরি করতে চান? [১-১০]: "
+            upper_prompt = "বড় হাতের অক্ষর অন্তর্ভুক্ত করবেন? (Y/N): "
+            lower_prompt = "ছোট হাতের অক্ষর অন্তর্ভুক্ত করবেন? (Y/N): "
+            digits_prompt = "সংখ্যা অন্তর্ভুক্ত করবেন? (Y/N): "
+            symbols_prompt = "চিহ্ন (সিম্বল) অন্তর্ভুক্ত করবেন? (Y/N): "
+            custom_prompt = "অতিরিক্ত কাস্টম অক্ষর (ঐচ্ছিক): "
+            ambiguous_prompt = "বিভ্রান্তিকর অক্ষর (0/O, l/1) এড়াতে চান? (Y/N): "
+            error_no_chars = "আপনাকে অন্তত একটি অক্ষরের ধরন নির্বাচন করতে হবে।"
+            error_general = "ত্রুটি: {}"
+            thank_you_message = "ধন্যবাদ! আপনার পাসওয়ার্ড খুবই শক্তিশালী এবং নিরাপদ এখন কোন পেশাদার হ্যাকার আপনার একাউন্ট হ্যাক করতে পারবে না ।"
+        else:
+            # English prompts
+            length_prompt = "How long should the password be (8–50)? [12]: "
+            count_prompt = "How many passwords would you like to generate? [1–10]: "
+            upper_prompt = "Include uppercase letters? (Y/N): "
+            lower_prompt = "Include lowercase letters? (Y/N): "
+            digits_prompt = "Include numbers? (Y/N): "
+            symbols_prompt = "Include symbols? (Y/N): "
+            custom_prompt = "Add any custom characters (optional): "
+            ambiguous_prompt = "Avoid ambiguous characters (0/O, l/1)? (Y/N): "
+            error_no_chars = "You must select at least one character type."
+            error_general = "Error: {}"
+            thank_you_message = "Thank you! Your password is very strong and secure Now Noob Hacker's can't hack Your account."
+
+        # Collect input with automatic clearing
+        clear_screen()
+        banner()
+        length = int(input(Fore.MAGENTA + length_prompt) or "12")
+        length = min(max(length, 8), 50)
+
+        clear_screen()
+        banner()
+        count = int(input(Fore.MAGENTA + count_prompt) or "1")
+        count = min(max(count, 1), 10)
+
+        clear_screen()
+        banner()
+        upper = input(Fore.MAGENTA + upper_prompt).strip().lower() != 'n'
+
+        clear_screen()
+        banner()
+        lower = input(Fore.MAGENTA + lower_prompt).strip().lower() != 'n'
+
+        clear_screen()
+        banner()
+        digits = input(Fore.MAGENTA + digits_prompt).strip().lower() != 'n'
+
+        clear_screen()
+        banner()
+        symbols = input(Fore.MAGENTA + symbols_prompt).strip().lower() != 'n'
+
+        clear_screen()
+        banner()
+        custom = input(Fore.MAGENTA + custom_prompt)
+
+        clear_screen()
+        banner()
+        avoid_ambiguous = input(Fore.MAGENTA + ambiguous_prompt).strip().lower() != 'n'
+
+        # Clear the screen after all inputs
+        clear_screen()
+        banner()
+
+        if not any([upper, lower, digits, symbols, custom]):
+            print(Fore.RED + error_no_chars)
+            return
+
+        animate_loading()
+
+        for _ in range(count):
+            pw = generate_advanced_password(length, upper, lower, digits, symbols, custom, avoid_ambiguous)
+            if not pw:
+                print(Fore.RED + "Error generating password.")
+                return
+            print(Fore.GREEN + pw)
+
+        # Add gap before thank you message
+        print("\n" * 2)  # Adds two blank lines for spacing
+
+        # Display thank you message
+        print(Fore.CYAN + thank_you_message)
+
+    except KeyboardInterrupt:
+        # Clear screen on interrupt
+        clear_screen()
+        print("\n" + Fore.RED + "Canceled.")
+    except Exception as e:
+        print(Fore.RED + error_general.format(e))
 
 if __name__ == "__main__":
-    with client:
-        client.loop.run_until_complete(main())
+    main()
